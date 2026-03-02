@@ -29,6 +29,26 @@
     <div id="cesiumContainer"></div>
     <script>
       const viewer = new Cesium.Viewer("cesiumContainer");
+
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(
+          110.114119,
+          39.902751,
+          17039846,
+        ),
+      });
+
+      viewer.entities.add({
+        name: "示例线条",
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            77.046035, 37.912716, 116.873428, 33.437221,
+          ]),
+          width: 5,
+          material: Cesium.Color.RED,
+          clampToGround: true,
+        },
+      });
     </script>
   </body>
 </html>
