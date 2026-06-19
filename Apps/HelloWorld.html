@@ -14,6 +14,7 @@
     <script src="../Build/CesiumUnminified/Cesium.js"></script>
     <style>
       @import url(../Build/CesiumUnminified/Widgets/widgets.css);
+
       html,
       body,
       #cesiumContainer {
@@ -23,32 +24,1416 @@
         padding: 0;
         overflow: hidden;
       }
+
+      #cameraPreviewPanel {
+        position: absolute;
+        right: 20px;
+        bottom: 20px;
+        z-index: 1;
+        width: min(420px, calc(100vw - 40px));
+        height: min(270px, calc(100vh - 40px));
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        border-radius: 8px;
+        background: #101820;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+      }
+
+      #cameraControlsPanel {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        z-index: 1;
+        width: 300px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.36);
+        border-radius: 8px;
+        color: #f7fafc;
+        background: rgba(16, 24, 32, 0.94);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.32);
+        font: 13px/1.3 sans-serif;
+      }
+
+      #cameraControlsHeader {
+        padding: 10px 12px;
+        font-weight: 700;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .cameraControlsBody {
+        display: grid;
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .cameraToggleRow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .cameraToggleRow input {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+      }
+
+      .cameraControlGroup {
+        display: grid;
+        gap: 8px;
+      }
+
+      .cameraControlGroupTitle {
+        color: #9fe7ff;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .cameraControlRow {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .cameraControlRow input {
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        height: 30px;
+        padding: 4px 8px;
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        font: 13px/1.2 sans-serif;
+      }
+
+      .cameraControlRow input:focus {
+        outline: 2px solid rgba(87, 203, 255, 0.75);
+        outline-offset: 1px;
+      }
+
+      .cameraControlRow input:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .cameraZoomOptions {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .cameraZoomButton {
+        height: 30px;
+        color: #f7fafc;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+        font: 700 13px/1 sans-serif;
+      }
+
+      .cameraZoomButton:hover,
+      .cameraZoomButton.isActive {
+        color: #071017;
+        border-color: rgba(159, 231, 255, 0.95);
+        background: #9fe7ff;
+      }
+
+      #cameraPreviewHeader {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        padding: 0 12px;
+        color: #ffffff;
+        background: rgba(16, 24, 32, 0.92);
+        font: 600 13px/1.2 sans-serif;
+      }
+
+      #cameraPreview {
+        width: 100%;
+        height: calc(100% - 32px);
+      }
+
+      #previewCreditContainer {
+        display: none;
+      }
+
+      @media (max-width: 700px) {
+        #cameraControlsPanel {
+          top: 12px;
+          left: 12px;
+          width: min(300px, calc(100vw - 24px));
+          max-height: calc(100vh - 260px);
+          overflow-y: auto;
+        }
+
+        #cameraPreviewPanel {
+          right: 12px;
+          bottom: 12px;
+          width: calc(100vw - 24px);
+          height: 220px;
+        }
+      }
     </style>
   </head>
+
   <body>
     <div id="cesiumContainer"></div>
+    <div id="cameraControlsPanel">
+      <div id="cameraControlsHeader">Camera Controls</div>
+      <div class="cameraControlsBody">
+        <label class="cameraToggleRow">
+          <input id="showFrustumOutline" type="checkbox" checked />
+          <span>Show frustum outline</span>
+        </label>
+        <div class="cameraControlGroup">
+          <div class="cameraControlGroupTitle">Frustum</div>
+          <label class="cameraToggleRow">
+            <input id="useFixedFrustumLength" type="checkbox" />
+            <span>Use fixed frustum length</span>
+          </label>
+          <label class="cameraToggleRow">
+            <input id="showGroundSurfaceOnly" type="checkbox" />
+            <span>Show ground surface only</span>
+          </label>
+          <label class="cameraControlRow">
+            <span>Length (m)</span>
+            <input
+              id="frustumFixedLength"
+              type="number"
+              min="1"
+              step="1000"
+              value="1200000"
+              disabled
+            />
+          </label>
+        </div>
+        <div class="cameraControlGroup">
+          <div class="cameraControlGroupTitle">Zoom</div>
+          <div class="cameraZoomOptions" aria-label="Camera zoom">
+            <button
+              class="cameraZoomButton isActive"
+              type="button"
+              data-zoom-factor="1"
+            >
+              1x
+            </button>
+            <button class="cameraZoomButton" type="button" data-zoom-factor="2">
+              2x
+            </button>
+            <button class="cameraZoomButton" type="button" data-zoom-factor="3">
+              3x
+            </button>
+            <button class="cameraZoomButton" type="button" data-zoom-factor="5">
+              5x
+            </button>
+          </div>
+        </div>
+        <div class="cameraControlGroup">
+          <div class="cameraControlGroupTitle">Position</div>
+          <label class="cameraControlRow">
+            <span>Longitude</span>
+            <input id="cameraLongitude" type="number" step="0.000001" />
+          </label>
+          <label class="cameraControlRow">
+            <span>Latitude</span>
+            <input id="cameraLatitude" type="number" step="0.000001" />
+          </label>
+          <label class="cameraControlRow">
+            <span>Height (m)</span>
+            <input id="cameraHeight" type="number" min="1" step="1000" />
+          </label>
+        </div>
+        <div class="cameraControlGroup">
+          <div class="cameraControlGroupTitle">Orientation</div>
+          <label class="cameraControlRow">
+            <span>Heading</span>
+            <input id="cameraHeading" type="number" step="1" />
+          </label>
+          <label class="cameraControlRow">
+            <span>Pitch</span>
+            <input
+              id="cameraPitch"
+              type="number"
+              min="-89.9"
+              max="89.9"
+              step="1"
+            />
+          </label>
+          <label class="cameraControlRow">
+            <span>Roll</span>
+            <input id="cameraRoll" type="number" step="1" />
+          </label>
+        </div>
+      </div>
+    </div>
+    <div id="cameraPreviewPanel">
+      <div id="cameraPreviewHeader">Preview Camera</div>
+      <div id="cameraPreview"></div>
+    </div>
+    <div id="previewCreditContainer"></div>
     <script>
-      const viewer = new Cesium.Viewer("cesiumContainer");
+      // 下面的中文注释按每个 JS 语句、参数和配置项逐行解释；纯结构闭合符号不重复注释。
+      // 创建主 Cesium Viewer，用来展示主地图和相机标记。
+      const viewer = new Cesium.Viewer("cesiumContainer", {
+        // 关闭页面初次加载时的导航操作提示。
+        navigationInstructionsInitiallyVisible: false,
+      });
+      // 创建右下角预览窗口的 Cesium Viewer。
+      const previewViewer = new Cesium.Viewer("cameraPreview", {
+        // 关闭预览窗口左下角动画控件。
+        animation: false,
+        // 关闭预览窗口底图选择器。
+        baseLayerPicker: false,
+        // 关闭预览窗口全屏按钮。
+        fullscreenButton: false,
+        // 关闭预览窗口地名搜索框。
+        geocoder: false,
+        // 关闭预览窗口 Home 按钮。
+        homeButton: false,
+        // 关闭预览窗口实体信息弹窗。
+        infoBox: false,
+        // 关闭预览窗口帮助按钮。
+        navigationHelpButton: false,
+        // 关闭预览窗口场景模式切换按钮。
+        sceneModePicker: false,
+        // 关闭预览窗口选中实体的指示器。
+        selectionIndicator: false,
+        // 关闭预览窗口时间轴。
+        timeline: false,
+        // 把预览窗口版权信息放到隐藏容器里，避免挤占预览画面。
+        creditContainer: "previewCreditContainer",
+      });
 
+      // 设置主地图初始化视角。
       viewer.camera.setView({
+        // 通过经度、纬度和高度创建相机目标位置。
         destination: Cesium.Cartesian3.fromDegrees(
+          // 初始化相机经度。
           110.114119,
+          // 初始化相机纬度。
           39.902751,
+          // 初始化相机高度，单位为米。
           17039846,
         ),
       });
 
+      // 向指定 Viewer 添加一条红色贴地示例线。
+      function addExampleLine(targetViewer) {
+        // 在目标 Viewer 的实体集合中添加线实体。
+        targetViewer.entities.add({
+          // 设置实体名称，便于调试和识别。
+          name: "Example line",
+          // 定义实体的折线样式和位置。
+          polyline: {
+            // 用经纬度数组创建折线的两个端点。
+            positions: Cesium.Cartesian3.fromDegreesArray([
+              // 第一个点和第二个点的经纬度坐标。
+              77.046035, 37.912716, 116.873428, 33.437221,
+            ]),
+            // 设置折线宽度为 5 像素。
+            width: 5,
+            // 设置折线颜色为红色。
+            material: Cesium.Color.RED,
+            // 让红色折线贴合地表绘制。
+            clampToGround: true,
+          },
+        });
+      }
+
+      // 在主地图中添加红色示例线。
+      addExampleLine(viewer);
+      // 在预览地图中也添加同一条红色示例线。
+      addExampleLine(previewViewer);
+
+      // 取得预览窗口的屏幕空间相机控制器。
+      const previewController = previewViewer.scene.screenSpaceCameraController;
+      // 禁止用户在预览窗口旋转相机。
+      previewController.enableRotate = false;
+      // 禁止用户在预览窗口平移相机。
+      previewController.enableTranslate = false;
+      // 禁止用户在预览窗口缩放相机。
+      previewController.enableZoom = false;
+      // 禁止用户在预览窗口倾斜相机。
+      previewController.enableTilt = false;
+      // 禁止用户在预览窗口自由观察。
+      previewController.enableLook = false;
+
+      // 创建一个独立的 Cesium Camera 对象，用来保存预览相机状态。
+      const previewCameraObject = new Cesium.Camera(previewViewer.scene);
+      // 设置预览相机的基础视场角为 60 度。
+      const basePreviewFov = Cesium.Math.toRadians(60.0);
+      // 设置预览相机允许的最小俯仰角。
+      const minPreviewPitch = -89.9;
+      // 设置预览相机允许的最大俯仰角。
+      const maxPreviewPitch = 89.9;
+      // 保存当前预览相机的缩放倍率。
+      let previewZoomFactor = 1.0;
+      const defaultFrustumFixedLength = 1200000.0;
+      let frustumFixedLength = defaultFrustumFixedLength;
+      // 把基础视场角写入预览相机视锥。
+      previewCameraObject.frustum.fov = basePreviewFov;
+      // 设置预览相机近裁剪面。
+      previewCameraObject.frustum.near = 1.0;
+      // 设置预览相机远裁剪面。
+      previewCameraObject.frustum.far = 50000000.0;
+
+      // 定义预览相机的初始位置和姿态。
+      const initialPreviewCamera = {
+        // 初始经度。
+        longitude: 96.0,
+        // 初始纬度。
+        latitude: 39.0,
+        // 初始高度，单位为米。
+        height: 2000.0,
+        // 初始航向角，单位为度。
+        heading: 95.0,
+        // 初始俯仰角，单位为度。
+        pitch: -42.0,
+        // 初始翻滚角，单位为度。
+        roll: 0.0,
+      };
+      // 创建可被控件和相机逻辑共同读写的预览相机状态。
+      const previewCameraState = {
+        // 从初始配置复制经度。
+        longitude: initialPreviewCamera.longitude,
+        // 从初始配置复制纬度。
+        latitude: initialPreviewCamera.latitude,
+        // 从初始配置复制高度。
+        height: initialPreviewCamera.height,
+        // 从初始配置复制航向角。
+        heading: initialPreviewCamera.heading,
+        // 从初始配置复制俯仰角。
+        pitch: initialPreviewCamera.pitch,
+        // 从初始配置复制翻滚角。
+        roll: initialPreviewCamera.roll,
+      };
+
+      // 当 value 已定义时返回 value，否则返回 fallback。
+      function defaultValue(value, fallback) {
+        // 使用 Cesium.defined 兼容 Cesium 的 undefined/null 判断习惯。
+        return Cesium.defined(value) ? value : fallback;
+      }
+
+      // 从数字输入框读取数值。
+      function readNumberInput(input) {
+        // 把输入框字符串转换为数字。
+        const value = Number(input.value);
+        // 只有有限数字才返回，否则返回 undefined 表示不更新。
+        return Number.isFinite(value) ? value : undefined;
+      }
+
+      // 把数字写回输入框，同时避免覆盖用户正在编辑的输入。
+      function writeNumberInput(input, value, fractionDigits) {
+        // 如果当前输入框正在聚焦，或者值不是有效数字，则不写入。
+        if (document.activeElement === input || !Number.isFinite(value)) {
+          // 提前返回，避免打断用户输入。
+          return;
+        }
+
+        // 按指定小数位格式化后写入输入框。
+        input.value = value.toFixed(fractionDigits);
+      }
+
+      // 把任意角度归一化到 0 到 360 度。
+      function normalizeDegrees(value) {
+        // 先通过取余把角度缩到一个 360 度周期内。
+        let normalized = value % 360.0;
+        // 如果结果为负数，就加 360 转成正角度。
+        normalized = normalized < 0.0 ? normalized + 360.0 : normalized;
+        // 把非常接近 360 的值显示成 0，避免浮点误差。
+        return Math.abs(normalized - 360.0) < 0.000001 ? 0.0 : normalized;
+      }
+
+      // 把角度归一化到 -180 到 180 度。
+      function normalizeSignedDegrees(value) {
+        // 先归一化到 0 到 360 度。
+        const normalized = normalizeDegrees(value);
+        // 大于 180 度时转换成对应的负角度。
+        const signed = normalized > 180.0 ? normalized - 360.0 : normalized;
+        // 把非常接近 0 的值显示成 0，避免浮点误差。
+        return Math.abs(signed) < 0.000001 ? 0.0 : signed;
+      }
+
+      // 把数值限制在 minimum 和 maximum 之间。
+      function clamp(value, minimum, maximum) {
+        // 先取下限，再取上限，得到最终限制后的值。
+        return Math.min(Math.max(value, minimum), maximum);
+      }
+
+      // 限制预览相机的俯仰角，避免正负 90 度附近的奇异情况。
+      function clampPitch(pitch) {
+        // 使用统一的 clamp 工具限制俯仰角。
+        return clamp(pitch, minPreviewPitch, maxPreviewPitch);
+      }
+
+      // 根据世界坐标位置计算当地的东、北、上三个方向向量。
+      function getLocalFrame(position) {
+        // 创建以 position 为原点的东北天本地坐标系矩阵。
+        const transform = Cesium.Transforms.eastNorthUpToFixedFrame(position);
+        // 从矩阵第 0 列取出 east 方向。
+        const east = Cesium.Matrix4.getColumn(
+          // 传入东北天坐标系矩阵。
+          transform,
+          // 第 0 列代表 east。
+          0,
+          // 提供临时 Cartesian4 承接结果。
+          new Cesium.Cartesian4(),
+        );
+        // 从矩阵第 1 列取出 north 方向。
+        const north = Cesium.Matrix4.getColumn(
+          // 传入东北天坐标系矩阵。
+          transform,
+          // 第 1 列代表 north。
+          1,
+          // 提供临时 Cartesian4 承接结果。
+          new Cesium.Cartesian4(),
+        );
+        // 从矩阵第 2 列取出 up 方向。
+        const up = Cesium.Matrix4.getColumn(
+          // 传入东北天坐标系矩阵。
+          transform,
+          // 第 2 列代表 up。
+          2,
+          // 提供临时 Cartesian4 承接结果。
+          new Cesium.Cartesian4(),
+        );
+
+        // 返回三个 Cartesian3 方向向量。
+        return {
+          // 把 east 的 x/y/z 拷贝成 Cartesian3。
+          east: new Cesium.Cartesian3(east.x, east.y, east.z),
+          // 把 north 的 x/y/z 拷贝成 Cartesian3。
+          north: new Cesium.Cartesian3(north.x, north.y, north.z),
+          // 把 up 的 x/y/z 拷贝成 Cartesian3。
+          up: new Cesium.Cartesian3(up.x, up.y, up.z),
+        };
+      }
+
+      // 使用罗德里格旋转公式，让 vector 绕 axis 旋转 angle 弧度。
+      function rotateVectorAroundAxis(vector, axis, angle, result) {
+        // 计算旋转角的余弦值。
+        const cosAngle = Math.cos(angle);
+        // 计算旋转角的正弦值。
+        const sinAngle = Math.sin(angle);
+        // 计算 vector * cos(angle) 这一项。
+        const scaledVector = Cesium.Cartesian3.multiplyByScalar(
+          // 待旋转向量。
+          vector,
+          // 余弦缩放系数。
+          cosAngle,
+          // 临时结果对象。
+          new Cesium.Cartesian3(),
+        );
+        // 计算 (axis x vector) * sin(angle) 这一项。
+        const cross = Cesium.Cartesian3.multiplyByScalar(
+          // 先求 axis 与 vector 的叉积。
+          Cesium.Cartesian3.cross(axis, vector, new Cesium.Cartesian3()),
+          // 再乘以正弦缩放系数。
+          sinAngle,
+          // 临时结果对象。
+          new Cesium.Cartesian3(),
+        );
+        // 计算 axis * dot(axis, vector) * (1 - cos(angle)) 这一项。
+        const axisProjection = Cesium.Cartesian3.multiplyByScalar(
+          // 旋转轴方向。
+          axis,
+          // 轴向投影系数。
+          Cesium.Cartesian3.dot(axis, vector) * (1.0 - cosAngle),
+          // 临时结果对象。
+          new Cesium.Cartesian3(),
+        );
+
+        // 先把前两项相加写入 result。
+        Cesium.Cartesian3.add(scaledVector, cross, result);
+        // 再加上轴向投影项并返回最终旋转结果。
+        return Cesium.Cartesian3.add(result, axisProjection, result);
+      }
+
+      // 根据 previewCameraState 计算预览相机的世界坐标姿态。
+      function applyPreviewCameraState() {
+        // 用经度、纬度、高度计算相机世界坐标位置。
+        const position = Cesium.Cartesian3.fromDegrees(
+          // 预览相机经度。
+          previewCameraState.longitude,
+          // 预览相机纬度。
+          previewCameraState.latitude,
+          // 预览相机高度。
+          previewCameraState.height,
+        );
+        // 根据相机位置计算当地坐标系方向。
+        const localFrame = getLocalFrame(position);
+        // 把航向角从度转换为弧度。
+        const heading = Cesium.Math.toRadians(previewCameraState.heading);
+        // 把俯仰角从度转换为弧度。
+        const pitch = Cesium.Math.toRadians(previewCameraState.pitch);
+        // 把翻滚角从度转换为弧度。
+        const roll = Cesium.Math.toRadians(previewCameraState.roll);
+
+        // 根据航向角计算水平面上的朝向向量。
+        const horizontalDirection = Cesium.Cartesian3.add(
+          // north 分量乘以 cos(heading)。
+          Cesium.Cartesian3.multiplyByScalar(
+            // 当地 north 方向。
+            localFrame.north,
+            // 航向角的 north 权重。
+            Math.cos(heading),
+            // 临时结果对象。
+            new Cesium.Cartesian3(),
+          ),
+          // east 分量乘以 sin(heading)。
+          Cesium.Cartesian3.multiplyByScalar(
+            // 当地 east 方向。
+            localFrame.east,
+            // 航向角的 east 权重。
+            Math.sin(heading),
+            // 临时结果对象。
+            new Cesium.Cartesian3(),
+          ),
+          // 承接水平朝向向量。
+          new Cesium.Cartesian3(),
+        );
+
+        // 根据水平朝向和俯仰角计算完整相机 direction。
+        const direction = Cesium.Cartesian3.normalize(
+          // 合并水平分量和 up 分量。
+          Cesium.Cartesian3.add(
+            // 水平方向乘以 cos(pitch)。
+            Cesium.Cartesian3.multiplyByScalar(
+              // 水平朝向。
+              horizontalDirection,
+              // 俯仰角的水平权重。
+              Math.cos(pitch),
+              // 临时结果对象。
+              new Cesium.Cartesian3(),
+            ),
+            // up 方向乘以 sin(pitch)。
+            Cesium.Cartesian3.multiplyByScalar(
+              // 当地 up 方向。
+              localFrame.up,
+              // 俯仰角的垂直权重。
+              Math.sin(pitch),
+              // 临时结果对象。
+              new Cesium.Cartesian3(),
+            ),
+            // 承接未归一化 direction。
+            new Cesium.Cartesian3(),
+          ),
+          // 承接归一化后的 direction。
+          new Cesium.Cartesian3(),
+        );
+        // 在未应用 roll 时，根据 direction 和 up 计算右方向。
+        const rightNoRoll = Cesium.Cartesian3.normalize(
+          // direction 与当地 up 叉乘得到右方向。
+          Cesium.Cartesian3.cross(
+            // 相机朝向。
+            direction,
+            // 当地 up 方向。
+            localFrame.up,
+            // 临时结果对象。
+            new Cesium.Cartesian3(),
+          ),
+          // 承接归一化后的右方向。
+          new Cesium.Cartesian3(),
+        );
+        // 在未应用 roll 时，根据右方向和 direction 计算相机 up。
+        const upNoRoll = Cesium.Cartesian3.normalize(
+          // rightNoRoll 与 direction 叉乘得到未翻滚的 up。
+          Cesium.Cartesian3.cross(
+            // 未翻滚的右方向。
+            rightNoRoll,
+            // 相机朝向。
+            direction,
+            // 临时结果对象。
+            new Cesium.Cartesian3(),
+          ),
+          // 承接归一化后的 up。
+          new Cesium.Cartesian3(),
+        );
+        // 按 roll 角绕 direction 旋转 up 向量。
+        const up = Cesium.Cartesian3.normalize(
+          // 执行绕轴旋转。
+          rotateVectorAroundAxis(
+            // 未翻滚的 up。
+            upNoRoll,
+            // 绕相机 direction 旋转。
+            direction,
+            // 翻滚角。
+            roll,
+            // 临时结果对象。
+            new Cesium.Cartesian3(),
+          ),
+          // 承接归一化后的 up。
+          new Cesium.Cartesian3(),
+        );
+        // 根据 direction 和已经翻滚后的 up 重新计算 right。
+        const right = Cesium.Cartesian3.normalize(
+          // direction 与 up 叉乘得到 right。
+          Cesium.Cartesian3.cross(direction, up, new Cesium.Cartesian3()),
+          // 承接归一化后的 right。
+          new Cesium.Cartesian3(),
+        );
+
+        // 把计算出的世界坐标位置写入预览相机对象。
+        Cesium.Cartesian3.clone(position, previewCameraObject.position);
+        // 把计算出的 direction 写入预览相机对象。
+        Cesium.Cartesian3.clone(direction, previewCameraObject.direction);
+        // 把计算出的 up 写入预览相机对象。
+        Cesium.Cartesian3.clone(up, previewCameraObject.up);
+        // 把计算出的 right 写入预览相机对象。
+        Cesium.Cartesian3.clone(right, previewCameraObject.right);
+      }
+
+      // 更新预览相机状态，并同步到预览窗口和输入控件。
+      function setPreviewCameraView(options) {
+        // 允许调用方省略 options。
+        options = options || {};
+
+        // 更新经度，未传入时保持当前值。
+        previewCameraState.longitude = defaultValue(
+          // 外部传入的新经度。
+          options.longitude,
+          // 当前经度作为默认值。
+          previewCameraState.longitude,
+        );
+        // 更新纬度，未传入时保持当前值。
+        previewCameraState.latitude = defaultValue(
+          // 外部传入的新纬度。
+          options.latitude,
+          // 当前纬度作为默认值。
+          previewCameraState.latitude,
+        );
+        // 更新高度，未传入时保持当前值。
+        previewCameraState.height = defaultValue(
+          // 外部传入的新高度。
+          options.height,
+          // 当前高度作为默认值。
+          previewCameraState.height,
+        );
+        // 更新航向角，未传入时保持当前值。
+        previewCameraState.heading = defaultValue(
+          // 外部传入的新航向角。
+          options.heading,
+          // 当前航向角作为默认值。
+          previewCameraState.heading,
+        );
+        // 更新俯仰角，并限制在允许范围内。
+        previewCameraState.pitch = clampPitch(
+          // 读取外部俯仰角，未传入时使用当前俯仰角。
+          defaultValue(options.pitch, previewCameraState.pitch),
+        );
+        // 更新翻滚角，未传入时保持当前值。
+        previewCameraState.roll = defaultValue(
+          // 外部传入的新翻滚角。
+          options.roll,
+          // 当前翻滚角作为默认值。
+          previewCameraState.roll,
+        );
+
+        // 根据新状态重新计算预览相机姿态。
+        applyPreviewCameraState();
+        // 把独立相机对象同步给实际预览 Viewer 的相机。
+        syncPreviewCamera();
+        // 把相机状态同步回左侧控制面板。
+        syncControlsFromCamera();
+      }
+
+      // 将 previewCameraObject 的参数同步到 previewViewer.camera。
+      function syncPreviewCamera() {
+        // 获取独立相机对象的视锥。
+        const sourceFrustum = previewCameraObject.frustum;
+        // 获取预览 Viewer 实际相机的视锥。
+        const targetFrustum = previewViewer.camera.frustum;
+
+        // 如果目标视锥有宽高比，就同步给源视锥用于后续计算。
+        if (Cesium.defined(targetFrustum.aspectRatio)) {
+          // 保存当前预览窗口宽高比。
+          sourceFrustum.aspectRatio = targetFrustum.aspectRatio;
+        }
+        // 如果源视锥有 fov，就同步给实际预览相机。
+        if (Cesium.defined(sourceFrustum.fov)) {
+          // 设置实际预览相机视场角。
+          targetFrustum.fov = sourceFrustum.fov;
+        }
+        // 同步近裁剪面。
+        targetFrustum.near = sourceFrustum.near;
+        // 同步远裁剪面。
+        targetFrustum.far = sourceFrustum.far;
+
+        // 同步实际预览相机的位置。
+        Cesium.Cartesian3.clone(
+          // 独立相机世界坐标位置。
+          previewCameraObject.positionWC,
+          // 实际预览相机位置。
+          previewViewer.camera.position,
+        );
+        // 同步实际预览相机的朝向。
+        Cesium.Cartesian3.clone(
+          // 独立相机世界坐标 direction。
+          previewCameraObject.directionWC,
+          // 实际预览相机 direction。
+          previewViewer.camera.direction,
+        );
+        // 同步实际预览相机的 up 向量。
+        Cesium.Cartesian3.clone(
+          // 独立相机世界坐标 up。
+          previewCameraObject.upWC,
+          // 实际预览相机 up。
+          previewViewer.camera.up,
+        );
+        // 同步实际预览相机的 right 向量。
+        Cesium.Cartesian3.clone(
+          // 独立相机世界坐标 right。
+          previewCameraObject.rightWC,
+          // 实际预览相机 right。
+          previewViewer.camera.right,
+        );
+      }
+
+      // 缓存所有相机控制面板 DOM 元素，避免重复查询。
+      const cameraControls = {
+        // 控制是否显示黄色视锥地面边界线的复选框。
+        showFrustumOutline: document.getElementById("showFrustumOutline"),
+        useFixedFrustumLength: document.getElementById("useFixedFrustumLength"),
+        showGroundSurfaceOnly: document.getElementById("showGroundSurfaceOnly"),
+        frustumFixedLength: document.getElementById("frustumFixedLength"),
+        // 获取所有缩放倍率按钮。
+        zoomButtons: Array.from(
+          // 查找带 data-zoom-factor 属性的按钮。
+          document.querySelectorAll("[data-zoom-factor]"),
+        ),
+        // 获取经度输入框。
+        longitude: document.getElementById("cameraLongitude"),
+        // 获取纬度输入框。
+        latitude: document.getElementById("cameraLatitude"),
+        // 获取高度输入框。
+        height: document.getElementById("cameraHeight"),
+        // 获取航向角输入框。
+        heading: document.getElementById("cameraHeading"),
+        // 获取俯仰角输入框。
+        pitch: document.getElementById("cameraPitch"),
+        // 获取翻滚角输入框。
+        roll: document.getElementById("cameraRoll"),
+      };
+
+      // 把当前预览相机状态写回控制面板输入框。
+      function syncControlsFromCamera() {
+        // 获取预览相机位置的经纬高表示。
+        const cartographic = previewCameraObject.positionCartographic;
+        // 把弧度经度转换成度，并保存到状态对象。
+        previewCameraState.longitude = Cesium.Math.toDegrees(
+          // 读取相机经度弧度。
+          cartographic.longitude,
+        );
+        // 把弧度纬度转换成度，并保存到状态对象。
+        previewCameraState.latitude = Cesium.Math.toDegrees(
+          // 读取相机纬度弧度。
+          cartographic.latitude,
+        );
+        // 保存相机高度。
+        previewCameraState.height = cartographic.height;
+
+        // 写回经度输入框，保留 6 位小数。
+        writeNumberInput(
+          // 经度输入框。
+          cameraControls.longitude,
+          // 当前经度。
+          previewCameraState.longitude,
+          // 小数位数。
+          6,
+        );
+        // 写回纬度输入框，保留 6 位小数。
+        writeNumberInput(
+          // 纬度输入框。
+          cameraControls.latitude,
+          // 当前纬度。
+          previewCameraState.latitude,
+          // 小数位数。
+          6,
+        );
+        // 写回高度输入框，保留 1 位小数。
+        writeNumberInput(cameraControls.height, previewCameraState.height, 1);
+        // 写回航向角输入框，保留 2 位小数。
+        writeNumberInput(
+          // 航向角输入框。
+          cameraControls.heading,
+          // 航向角归一化到 0 到 360 度。
+          normalizeDegrees(previewCameraState.heading),
+          // 小数位数。
+          2,
+        );
+        // 写回俯仰角输入框，保留 2 位小数。
+        writeNumberInput(
+          // 俯仰角输入框。
+          cameraControls.pitch,
+          // 俯仰角限制到允许范围。
+          clampPitch(previewCameraState.pitch),
+          // 小数位数。
+          2,
+        );
+        // 写回翻滚角输入框，保留 2 位小数。
+        writeNumberInput(
+          // 翻滚角输入框。
+          cameraControls.roll,
+          // 翻滚角归一化到 -180 到 180 度。
+          normalizeSignedDegrees(previewCameraState.roll),
+          // 小数位数。
+          2,
+        );
+      }
+
+      // 根据缩放倍率计算新的视场角。
+      function getZoomedFov(zoomFactor) {
+        // 视场角按倍率缩小，达到放大预览画面的效果。
+        return 2.0 * Math.atan(Math.tan(basePreviewFov * 0.5) / zoomFactor);
+      }
+
+      // 设置预览相机缩放倍率。
+      function setPreviewZoom(zoomFactor) {
+        // 忽略无效或非正数倍率。
+        if (!Number.isFinite(zoomFactor) || zoomFactor <= 0.0) {
+          // 输入非法时不改变当前缩放。
+          return;
+        }
+
+        // 保存当前缩放倍率。
+        previewZoomFactor = zoomFactor;
+        // 根据缩放倍率更新独立相机视场角。
+        previewCameraObject.frustum.fov = getZoomedFov(previewZoomFactor);
+        // 遍历所有缩放按钮，更新激活样式。
+        cameraControls.zoomButtons.forEach(function (button) {
+          // 当前按钮倍率等于当前缩放倍率时添加 isActive。
+          button.classList.toggle(
+            // 激活样式类名。
+            "isActive",
+            // 判断按钮对应倍率是否为当前倍率。
+            Number(button.dataset.zoomFactor) === previewZoomFactor,
+          );
+        });
+        // 把新的视场角同步到实际预览相机。
+        syncPreviewCamera();
+      }
+
+      // Synchronize the fixed-length frustum input without changing camera pose.
+      function syncFrustumFixedLengthInput() {
+        writeNumberInput(
+          cameraControls.frustumFixedLength,
+          frustumFixedLength,
+          1,
+        );
+      }
+
+      function updateFrustumFixedLengthControlState() {
+        cameraControls.frustumFixedLength.disabled =
+          !cameraControls.useFixedFrustumLength.checked;
+      }
+
+      function setFrustumFixedLength(length) {
+        if (!Number.isFinite(length) || length <= 0.0) {
+          return;
+        }
+
+        frustumFixedLength = length;
+        syncFrustumFixedLengthInput();
+      }
+
+      function updateFrustumFixedLengthFromControl() {
+        setFrustumFixedLength(
+          readNumberInput(cameraControls.frustumFixedLength),
+        );
+      }
+
+      function updatePreviewCameraFromControls() {
+        // 调用统一入口更新预览相机状态。
+        setPreviewCameraView({
+          // 读取经度输入。
+          longitude: readNumberInput(cameraControls.longitude),
+          // 读取纬度输入。
+          latitude: readNumberInput(cameraControls.latitude),
+          // 读取高度输入。
+          height: readNumberInput(cameraControls.height),
+          // 读取航向角输入。
+          heading: readNumberInput(cameraControls.heading),
+          // 读取俯仰角输入。
+          pitch: readNumberInput(cameraControls.pitch),
+          // 读取翻滚角输入。
+          roll: readNumberInput(cameraControls.roll),
+        });
+      }
+
+      // 需要监听输入变化的所有数字输入框。
+      [
+        // 经度输入框。
+        cameraControls.longitude,
+        // 纬度输入框。
+        cameraControls.latitude,
+        // 高度输入框。
+        cameraControls.height,
+        // 航向角输入框。
+        cameraControls.heading,
+        // 俯仰角输入框。
+        cameraControls.pitch,
+        // 翻滚角输入框。
+        cameraControls.roll,
+      ].forEach(function (input) {
+        // 输入过程中实时更新预览相机。
+        input.addEventListener("input", updatePreviewCameraFromControls);
+        // 输入提交或失焦时再次更新预览相机。
+        input.addEventListener("change", updatePreviewCameraFromControls);
+      });
+
+      // Bind fixed-length frustum controls.
+      cameraControls.frustumFixedLength.addEventListener(
+        "input",
+        updateFrustumFixedLengthFromControl,
+      );
+      cameraControls.frustumFixedLength.addEventListener(
+        "change",
+        updateFrustumFixedLengthFromControl,
+      );
+
+      cameraControls.useFixedFrustumLength.addEventListener(
+        "change",
+        function () {
+          updateFrustumFixedLengthControlState();
+          updateFrustumOutlineVisibility();
+        },
+      );
+
+      cameraControls.showGroundSurfaceOnly.addEventListener(
+        "change",
+        function () {
+          updateFrustumOutlineVisibility();
+        },
+      );
+
+      updateFrustumFixedLengthControlState();
+      setFrustumFixedLength(defaultFrustumFixedLength);
+
+      // 给每个缩放按钮绑定点击事件。
+      cameraControls.zoomButtons.forEach(function (button) {
+        // 点击按钮时应用该按钮的缩放倍率。
+        button.addEventListener("click", function () {
+          // 从 data-zoom-factor 读取倍率并转换成数字。
+          setPreviewZoom(Number(button.dataset.zoomFactor));
+        });
+      });
+
+      // 应用初始预览相机位置和姿态。
+      setPreviewCameraView(initialPreviewCamera);
+      // 应用初始预览缩放倍率。
+      setPreviewZoom(previewZoomFactor);
+      // 在预览场景每帧渲染前同步相机和输入框。
+      previewViewer.scene.preRender.addEventListener(function () {
+        // 确保实际预览相机跟随独立相机对象。
+        syncPreviewCamera();
+        // 确保控制面板显示最新相机状态。
+        syncControlsFromCamera();
+      });
+
+      // 在主地图中添加一个点实体表示预览相机位置。
       viewer.entities.add({
-        name: "示例线条",
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray([
-            77.046035, 37.912716, 116.873428, 33.437221,
-          ]),
-          width: 5,
-          material: Cesium.Color.RED,
-          clampToGround: true,
+        // 设置相机位置实体名称。
+        name: "Preview camera position",
+        // 使用回调属性，让点的位置每帧跟随预览相机。
+        position: new Cesium.CallbackProperty(function (time, result) {
+          // 返回预览相机当前世界坐标位置。
+          return Cesium.Cartesian3.clone(
+            // 预览相机世界坐标位置。
+            previewCameraObject.positionWC,
+            // 复用 Cesium 传入的结果对象。
+            result,
+          );
+        }, false),
+        // 定义点标记样式。
+        point: {
+          // 设置点像素尺寸。
+          pixelSize: 10,
+          // 设置点颜色为青色。
+          color: Cesium.Color.CYAN,
+          // 设置点外边框颜色为白色。
+          outlineColor: Cesium.Color.WHITE,
+          // 设置点外边框宽度。
+          outlineWidth: 2,
+        },
+        // 定义点旁边的文字标签。
+        label: {
+          // 设置标签文本。
+          text: "Preview Camera",
+          // 设置标签字体。
+          font: "13px sans-serif",
+          // 设置标签相对点的像素偏移。
+          pixelOffset: new Cesium.Cartesian2(0, -22),
+          // 设置标签填充颜色。
+          fillColor: Cesium.Color.WHITE,
+          // 设置标签描边颜色。
+          outlineColor: Cesium.Color.BLACK,
+          // 设置标签描边宽度。
+          outlineWidth: 3,
+          // 设置标签同时填充和描边。
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         },
       });
+
+      // 在主地图中添加一条青色线表示预览相机朝向。
+      viewer.entities.add({
+        // 设置方向线实体名称。
+        name: "Preview camera direction",
+        // 定义方向线折线。
+        polyline: {
+          // 使用回调属性，让方向线每帧跟随预览相机。
+          positions: new Cesium.CallbackProperty(function () {
+            // 方向线起点为预览相机当前位置。
+            const start = Cesium.Cartesian3.clone(
+              // 预览相机世界坐标位置。
+              previewCameraObject.positionWC,
+            );
+            // 将预览相机朝向放大成固定长度的方向向量。
+            const direction = Cesium.Cartesian3.multiplyByScalar(
+              // 预览相机世界坐标 direction。
+              previewCameraObject.directionWC,
+              // 方向线长度，单位为米。
+              1200000.0,
+              // 临时结果对象。
+              new Cesium.Cartesian3(),
+            );
+            // 用起点加方向向量得到终点。
+            const end = Cesium.Cartesian3.add(
+              // 方向线起点。
+              start,
+              // 放大后的方向向量。
+              direction,
+              // 临时结果对象。
+              new Cesium.Cartesian3(),
+            );
+            // 返回由起点和终点组成的折线。
+            return [start, end];
+          }, false),
+          // 设置方向线宽度。
+          width: 3,
+          // 设置方向线材质为半透明青色。
+          material: Cesium.Color.CYAN.withAlpha(0.85),
+        },
+      });
+
+      // 设置每条视锥边界在地面投影时的采样数量。
+      const frustumGroundEdgeSampleCount = 48;
+      // 定义预览相机画面四条边在归一化屏幕空间中的起止点。
+      const frustumGroundEdges = [
+        // 上边，从左上角采样到右上角。
+        { startX: -1.0, startY: 1.0, endX: 1.0, endY: 1.0 },
+        // 右边，从右上角采样到右下角。
+        { startX: 1.0, startY: 1.0, endX: 1.0, endY: -1.0 },
+        // 下边，从右下角采样到左下角。
+        { startX: 1.0, startY: -1.0, endX: -1.0, endY: -1.0 },
+        // 左边，从左下角采样到左上角。
+        { startX: -1.0, startY: -1.0, endX: -1.0, endY: 1.0 },
+      ];
+
+      // Define the eight edges used by the fixed-length frustum wireframe.
+      const fixedFrustumWireframeEdges = [
+        { fromCamera: true, endX: -1.0, endY: 1.0 },
+        { fromCamera: true, endX: 1.0, endY: 1.0 },
+        { fromCamera: true, endX: 1.0, endY: -1.0 },
+        { fromCamera: true, endX: -1.0, endY: -1.0 },
+        { startX: -1.0, startY: 1.0, endX: 1.0, endY: 1.0 },
+        { startX: 1.0, startY: 1.0, endX: 1.0, endY: -1.0 },
+        { startX: 1.0, startY: -1.0, endX: -1.0, endY: -1.0 },
+        { startX: -1.0, startY: -1.0, endX: -1.0, endY: 1.0 },
+      ];
+
+      // 计算视锥投影到地面所需的相机和视场参数。
+      function getFrustumMetrics() {
+        // 获取预览相机视锥。
+        const frustum = previewCameraObject.frustum;
+        // 读取视锥宽高比，优先使用预览 Viewer 的实际宽高比。
+        const aspectRatio = defaultValue(
+          // 独立相机对象当前宽高比。
+          frustum.aspectRatio,
+          // 实际预览相机视锥宽高比。
+          previewViewer.camera.frustum.aspectRatio,
+        );
+        // 计算垂直方向视场角。
+        const fovy =
+          // 当宽高比小于等于 1 时，fov 已经可以作为垂直视场角。
+          aspectRatio <= 1.0
+            ? // 直接使用视锥 fov。
+              frustum.fov
+            : // 宽屏时把水平相关 fov 换算成垂直视场角。
+              Math.atan(Math.tan(frustum.fov * 0.5) / aspectRatio) * 2.0;
+        // 计算单位距离上的半高。
+        const halfHeight = Math.tan(fovy * 0.5);
+        // 根据宽高比计算单位距离上的半宽。
+        const halfWidth = halfHeight * aspectRatio;
+
+        // 返回后续采样射线需要的所有参数。
+        return {
+          // 当前预览相机世界坐标位置。
+          camera: Cesium.Cartesian3.clone(previewCameraObject.positionWC),
+          // 当前预览相机世界坐标朝向。
+          direction: Cesium.Cartesian3.normalize(
+            // 读取预览相机 direction。
+            previewCameraObject.directionWC,
+            // 承接归一化后的 direction。
+            new Cesium.Cartesian3(),
+          ),
+          // 当前预览相机世界坐标 up 向量。
+          up: Cesium.Cartesian3.normalize(
+            // 读取预览相机 up。
+            previewCameraObject.upWC,
+            // 承接归一化后的 up。
+            new Cesium.Cartesian3(),
+          ),
+          // 当前预览相机世界坐标 right 向量。
+          right: Cesium.Cartesian3.normalize(
+            // 读取预览相机 right。
+            previewCameraObject.rightWC,
+            // 承接归一化后的 right。
+            new Cesium.Cartesian3(),
+          ),
+          // 保存单位距离半高。
+          halfHeight: halfHeight,
+          // 保存单位距离半宽。
+          halfWidth: halfWidth,
+        };
+      }
+
+      // 计算视锥边缘上某个归一化点发出的射线与地球椭球的交点。
+      function getFrustumRayDirection(metrics, x, y) {
+        const rightOffset = Cesium.Cartesian3.multiplyByScalar(
+          metrics.right,
+          x * metrics.halfWidth,
+          new Cesium.Cartesian3(),
+        );
+        const upOffset = Cesium.Cartesian3.multiplyByScalar(
+          metrics.up,
+          y * metrics.halfHeight,
+          new Cesium.Cartesian3(),
+        );
+        return Cesium.Cartesian3.normalize(
+          Cesium.Cartesian3.add(
+            metrics.direction,
+            Cesium.Cartesian3.add(
+              rightOffset,
+              upOffset,
+              new Cesium.Cartesian3(),
+            ),
+            new Cesium.Cartesian3(),
+          ),
+          new Cesium.Cartesian3(),
+        );
+      }
+
+      // Use the same edge ray as the ground projection, then stop it at the fixed length.
+      function getFixedFrustumPlanePoint(metrics, x, y) {
+        const rayDirection = getFrustumRayDirection(metrics, x, y);
+        const rayOffset = Cesium.Cartesian3.multiplyByScalar(
+          rayDirection,
+          frustumFixedLength,
+          new Cesium.Cartesian3(),
+        );
+        return Cesium.Cartesian3.add(
+          metrics.camera,
+          rayOffset,
+          new Cesium.Cartesian3(),
+        );
+      }
+
+      function getFixedFrustumLinePositions(edge) {
+        const metrics = getFrustumMetrics();
+        const end = getFixedFrustumPlanePoint(metrics, edge.endX, edge.endY);
+
+        if (edge.fromCamera) {
+          return [Cesium.Cartesian3.clone(metrics.camera), end];
+        }
+
+        return [
+          getFixedFrustumPlanePoint(metrics, edge.startX, edge.startY),
+          end,
+        ];
+      }
+
+      function getFrustumGroundIntersection(metrics, x, y) {
+        const rayDirection = getFrustumRayDirection(metrics, x, y);
+        // 获取当前主场景的地球椭球。
+        const ellipsoid = viewer.scene.globe.ellipsoid;
+        // 用相机位置和采样方向创建射线。
+        const ray = new Cesium.Ray(metrics.camera, rayDirection);
+        // 计算射线与椭球的交区间。
+        const intersection = Cesium.IntersectionTests.rayEllipsoid(
+          // 传入待求交射线。
+          ray,
+          // 传入地球椭球。
+          ellipsoid,
+        );
+
+        // 如果射线没有打到地球，说明这段边界不应绘制到地下。
+        if (!Cesium.defined(intersection)) {
+          // 返回 undefined 让调用方断开当前线段。
+          return undefined;
+        }
+
+        // 取离相机最近且非负的交点距离。
+        const distance =
+          // 如果 start 非负，使用 start；否则退到 stop。
+          intersection.start >= 0.0 ? intersection.start : intersection.stop;
+        // 如果交点距离无效，就不绘制该采样点。
+        if (!Number.isFinite(distance) || distance < 0.0) {
+          // 返回 undefined 让调用方断开当前线段。
+          return undefined;
+        }
+
+        // 根据射线和距离计算世界坐标交点。
+        const point = Cesium.Ray.getPoint(
+          // 传入射线。
+          ray,
+          // 传入射线参数距离。
+          distance,
+          // 承接交点坐标。
+          new Cesium.Cartesian3(),
+        );
+        // 把交点压回椭球表面，确保黄色边界线位于地面。
+        return ellipsoid.scaleToGeodeticSurface(point, point);
+      }
+
+      // 计算一条视锥边界投影到地面的折线点数组。
+      function getFrustumGroundEdgePositions(edge) {
+        // 先取得当前相机和视场参数。
+        const metrics = getFrustumMetrics();
+        // 保存被无交点采样切开的多个连续线段。
+        const segments = [];
+        // 保存当前正在累积的连续线段。
+        let currentSegment = [];
+
+        // 沿该边界从起点到终点等距采样。
+        for (let i = 0; i <= frustumGroundEdgeSampleCount; i++) {
+          // 把采样序号转换成 0 到 1 的插值比例。
+          const t = i / frustumGroundEdgeSampleCount;
+          // 根据插值比例计算当前采样点的归一化 x。
+          const x = edge.startX + (edge.endX - edge.startX) * t;
+          // 根据插值比例计算当前采样点的归一化 y。
+          const y = edge.startY + (edge.endY - edge.startY) * t;
+          // 计算该采样射线与地表的交点。
+          const point = getFrustumGroundIntersection(metrics, x, y);
+
+          // 如果存在交点，就把点加入当前连续线段。
+          if (Cesium.defined(point)) {
+            // 累积有效地表点。
+            currentSegment.push(point);
+            // 如果没有交点且当前线段已有点，就结束当前线段。
+          } else if (currentSegment.length > 0) {
+            // 保存已经累积好的连续线段。
+            segments.push(currentSegment);
+            // 开始新的连续线段。
+            currentSegment = [];
+          }
+        }
+
+        // 循环结束后，如果还有未保存的线段，就保存下来。
+        if (currentSegment.length > 0) {
+          // 保存最后一段连续有效地表点。
+          segments.push(currentSegment);
+        }
+
+        // 返回最长的连续线段，避免一条 Cesium polyline 跨过无效区域。
+        return segments.reduce(function (longestSegment, segment) {
+          // 当前线段更长时使用当前线段，否则保持已有最长线段。
+          return segment.length > longestSegment.length
+            ? // 当前线段更长，返回当前线段。
+              segment
+            : // 现有最长线段更长，继续保留。
+              longestSegment;
+        }, []);
+      }
+
+      // 为四条视锥边界分别创建黄色贴地折线实体。
+      const frustumOutlineEntities = frustumGroundEdges.map(function (edge) {
+        // 为当前边界添加一个 Cesium 实体。
+        return viewer.entities.add({
+          // 设置实体名称，便于调试和筛选。
+          name: "Preview camera ground boundary",
+          // 定义黄色边界折线。
+          polyline: {
+            // 使用回调属性，让折线每帧根据相机姿态重新计算。
+            positions: new Cesium.CallbackProperty(function () {
+              // 计算当前边界投影到地面的坐标点。
+              return getFrustumGroundEdgePositions(edge);
+            }, false),
+            // 设置黄色边界线宽度。
+            width: 2,
+            // 设置地表边界线材质和透明度。
+            material: Cesium.Color.RED.withAlpha(0.9),
+            // 让地表边界线贴地绘制，而不是穿过地面。
+            clampToGround: true,
+          },
+        });
+      });
+
+      // Create the yellow fixed-length frustum wireframe in the air.
+      const fixedFrustumOutlineEntities = fixedFrustumWireframeEdges.map(
+        function (edge) {
+          return viewer.entities.add({
+            name: "Preview camera fixed frustum",
+            polyline: {
+              positions: new Cesium.CallbackProperty(function () {
+                return getFixedFrustumLinePositions(edge);
+              }, false),
+              width: 2,
+              material: Cesium.Color.YELLOW.withAlpha(0.85),
+              arcType: Cesium.ArcType.NONE,
+              clampToGround: false,
+            },
+          });
+        },
+      );
+
+      function updateFrustumOutlineVisibility() {
+        const groundVisible = cameraControls.showFrustumOutline.checked;
+        const fixedVisible =
+          groundVisible &&
+          cameraControls.useFixedFrustumLength.checked &&
+          !cameraControls.showGroundSurfaceOnly.checked;
+
+        frustumOutlineEntities.forEach(function (entity) {
+          entity.show = groundVisible;
+        });
+        fixedFrustumOutlineEntities.forEach(function (entity) {
+          entity.show = fixedVisible;
+        });
+      }
+
+      function setFrustumOutlineVisible(visible) {
+        cameraControls.showFrustumOutline.checked = Boolean(visible);
+        updateFrustumOutlineVisibility();
+      }
+
+      // 监听复选框变化，控制黄色边界线显隐。
+      cameraControls.showFrustumOutline.addEventListener("change", function () {
+        // 按复选框当前状态设置黄色边界线显隐。
+        updateFrustumOutlineVisibility();
+      });
+
+      // 根据复选框初始状态设置黄色边界线显隐。
+      updateFrustumOutlineVisibility();
+
+      // 暴露主 Viewer 到 window，方便在浏览器控制台调试。
+      window.viewer = viewer;
+      // 暴露预览 Viewer 到 window，方便在浏览器控制台调试。
+      window.previewViewer = previewViewer;
+      // 暴露独立预览相机对象到 window，方便调试相机参数。
+      window.previewCameraObject = previewCameraObject;
+      // 暴露预览相机状态对象到 window，方便查看当前经纬高和姿态。
+      window.previewCameraState = previewCameraState;
+      // 暴露设置预览相机视角的方法到 window。
+      window.setPreviewCameraView = setPreviewCameraView;
+      // 暴露控制黄色边界线显隐的方法到 window。
+      window.setFrustumOutlineVisible = setFrustumOutlineVisible;
+      window.setFrustumFixedLength = setFrustumFixedLength;
+      // 暴露设置预览相机缩放倍率的方法到 window。
+      window.setPreviewZoom = setPreviewZoom;
     </script>
   </body>
 </html>
