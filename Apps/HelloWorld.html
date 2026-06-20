@@ -282,6 +282,7 @@
         // 关闭页面初次加载时的导航操作提示。
         navigationInstructionsInitiallyVisible: false,
       });
+      viewer.scene.globe.depthTestAgainstTerrain = true;
       // 创建右下角预览窗口的 Cesium Viewer。
       const previewViewer = new Cesium.Viewer("cameraPreview", {
         // 关闭预览窗口左下角动画控件。
@@ -372,6 +373,7 @@
       const maxPreviewPitch = 89.9;
       // 保存当前预览相机的缩放倍率。
       let previewZoomFactor = 1.0;
+      const previewDirectionLineLength = 1200000.0;
       const defaultFrustumFixedLength = 1200000.0;
       let frustumFixedLength = defaultFrustumFixedLength;
       // 把基础视场角写入预览相机视锥。
@@ -1091,21 +1093,49 @@
               // 预览相机世界坐标位置。
               previewCameraObject.positionWC,
             );
-            // 将预览相机朝向放大成固定长度的方向向量。
-            const direction = Cesium.Cartesian3.multiplyByScalar(
+            // 将预览相机朝向归一化，作为方向线射线方向。
+            const direction = Cesium.Cartesian3.normalize(
               // 预览相机世界坐标 direction。
               previewCameraObject.directionWC,
-              // 方向线长度，单位为米。
-              1200000.0,
               // 临时结果对象。
               new Cesium.Cartesian3(),
             );
-            // 用起点加方向向量得到终点。
-            const end = Cesium.Cartesian3.add(
-              // 方向线起点。
-              start,
-              // 放大后的方向向量。
-              direction,
+            // 用预览相机位置和朝向创建方向线射线。
+            const ray = new Cesium.Ray(start, direction);
+            // 默认方向线长度为固定最大长度。
+            let directionLineLength = previewDirectionLineLength;
+            // 计算方向线射线和地球椭球的交区间。
+            const intersection = Cesium.IntersectionTests.rayEllipsoid(
+              // 传入方向线射线。
+              ray,
+              // 传入主场景地球椭球。
+              viewer.scene.globe.ellipsoid,
+            );
+
+            // 如果方向线在最大长度内碰到地球，就把终点截到地表。
+            if (Cesium.defined(intersection)) {
+              // 取距离相机最近且非负的交点距离。
+              const distance =
+                intersection.start >= 0.0
+                  ? intersection.start
+                  : intersection.stop;
+              // 只使用有效且位于最大长度内的交点。
+              if (
+                Number.isFinite(distance) &&
+                distance >= 0.0 &&
+                distance < directionLineLength
+              ) {
+                // 用地表交点距离替换默认方向线长度。
+                directionLineLength = distance;
+              }
+            }
+
+            // 用射线和最终长度得到方向线终点。
+            const end = Cesium.Ray.getPoint(
+              // 传入方向线射线。
+              ray,
+              // 传入截断后的方向线长度。
+              directionLineLength,
               // 临时结果对象。
               new Cesium.Cartesian3(),
             );
@@ -1116,6 +1146,7 @@
           width: 3,
           // 设置方向线材质为半透明青色。
           material: Cesium.Color.CYAN.withAlpha(0.85),
+          arcType: Cesium.ArcType.NONE,
         },
       });
 
