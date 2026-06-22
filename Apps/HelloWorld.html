@@ -745,9 +745,9 @@
 
       // 将 previewCameraObject 的参数同步到 previewViewer.camera。
       function syncPreviewCamera() {
-        // 获取独立相机对象的视锥。
+        // 主地图中获取独立相机对象的视锥。
         const sourceFrustum = previewCameraObject.frustum;
-        // 获取预览 Viewer 实际相机的视锥。
+        // 获取预览 Viewer 实际相机的视锥，小地图中真实参与渲染的 Cesium 相机视锥
         const targetFrustum = previewViewer.camera.frustum;
 
         // 如果目标视锥有宽高比，就同步给源视锥用于后续计算。
