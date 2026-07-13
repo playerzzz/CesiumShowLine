@@ -1,19 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
-    <!-- Use correct character set. -->
     <meta charset="utf-8" />
-    <!-- Tell IE to use the latest, best version. -->
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <!-- Make the application on mobile take up the full browser screen and disable user scaling. -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"
     />
-    <title>Hello World!</title>
+    <title>Cesium WebGL 热力图</title>
     <script src="../Build/CesiumUnminified/Cesium.js"></script>
     <style>
       @import url(../Build/CesiumUnminified/Widgets/widgets.css);
+
       html,
       body,
       #cesiumContainer {
@@ -23,12 +21,65 @@
         padding: 0;
         overflow: hidden;
       }
+
+      #message {
+        position: absolute;
+        z-index: 2;
+        top: 12px;
+        left: 12px;
+        display: none;
+        max-width: 420px;
+        padding: 10px 14px;
+        border-radius: 4px;
+        color: #fff;
+        background: rgb(160 30 30 / 90%);
+        font: 14px/1.5 sans-serif;
+      }
     </style>
   </head>
   <body>
     <div id="cesiumContainer"></div>
-    <script>
-      const viewer = new Cesium.Viewer("cesiumContainer");
+    <div id="message"></div>
+
+    <script type="module">
+      import { heatmapData } from "./data.js";
+      import { WebGLHeatmap } from "./WebGLHeatmap.js?v=20260713-1";
+
+      const Cesium = globalThis.Cesium;
+      const message = document.getElementById("message");
+
+      try {
+        const viewer = new Cesium.Viewer("cesiumContainer", {
+          animation: false,
+          navigationHelpButton: false,
+          timeline: false,
+        });
+        viewer.scene.renderError.addEventListener((_scene, error) => {
+          showError(error);
+        });
+
+        const heatmap = new WebGLHeatmap(viewer, {
+          data: heatmapData,
+          radius: 28,
+          maxOpacity: 0.8,
+          textureSize: 1024,
+          padding: 0.08,
+        });
+
+        await heatmap.readyPromise;
+        viewer.camera.flyTo({
+          destination: heatmap.rectangle,
+          duration: 1.2,
+        });
+      } catch (error) {
+        console.error(error);
+        showError(error);
+      }
+
+      function showError(error) {
+        message.textContent = error?.message ?? String(error);
+        message.style.display = "block";
+      }
     </script>
   </body>
 </html>
