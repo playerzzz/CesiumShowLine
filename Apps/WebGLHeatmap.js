@@ -89,6 +89,9 @@ const QUAD_OFFSETS = [
 class HeatmapTexturePrimitive {
   constructor(options) {
     this.show = true;
+    this._data = options.data;
+    this._maxValue = options.maxValue;
+    this._bounds = options.bounds;
     this._textureWidth = options.textureWidth;
     this._textureHeight = options.textureHeight;
     this._textureDimensions = new Cesium.Cartesian2(
@@ -96,9 +99,9 @@ class HeatmapTexturePrimitive {
       options.textureHeight,
     );
     this._vertexData = createVertexData(
-      options.data,
-      options.bounds,
-      options.maxValue,
+      this._data,
+      this._bounds,
+      this._maxValue,
     );
     this._getRadius = options.getRadius;
     this._onTextureCreated = options.onTextureCreated;
@@ -112,6 +115,30 @@ class HeatmapTexturePrimitive {
     this._texture = undefined;
     this._framebuffer = undefined;
     this._computeCommand = undefined;
+  }
+
+  setBounds(bounds) {
+    if (boundsEqual(this._bounds, bounds)) {
+      return;
+    }
+
+    this._bounds = bounds;
+    this._vertexData = createVertexData(
+      this._data,
+      this._bounds,
+      this._maxValue,
+    );
+
+    if (this._context) {
+      if (this._vertexArray && !this._vertexArray.isDestroyed()) {
+        this._vertexArray.destroy();
+      }
+      this._createVertexArray(this._context);
+      this._drawCommand.vertexArray = this._vertexArray;
+      this._drawCommand.count = this._vertexData.vertexCount;
+    }
+
+    this._dirty = true;
   }
 
   update(frameState) {
@@ -162,45 +189,8 @@ class HeatmapTexturePrimitive {
   }
 
   _initialize(context) {
-    const centerBuffer = Cesium.Buffer.createVertexBuffer({
-      context,
-      typedArray: this._vertexData.centers,
-      usage: Cesium.BufferUsage.STATIC_DRAW,
-    });
-    const offsetBuffer = Cesium.Buffer.createVertexBuffer({
-      context,
-      typedArray: this._vertexData.offsets,
-      usage: Cesium.BufferUsage.STATIC_DRAW,
-    });
-    const weightBuffer = Cesium.Buffer.createVertexBuffer({
-      context,
-      typedArray: this._vertexData.weights,
-      usage: Cesium.BufferUsage.STATIC_DRAW,
-    });
-
-    this._vertexArray = new Cesium.VertexArray({
-      context,
-      attributes: [
-        {
-          index: 0,
-          vertexBuffer: centerBuffer,
-          componentsPerAttribute: 2,
-          componentDatatype: Cesium.ComponentDatatype.FLOAT,
-        },
-        {
-          index: 1,
-          vertexBuffer: offsetBuffer,
-          componentsPerAttribute: 2,
-          componentDatatype: Cesium.ComponentDatatype.FLOAT,
-        },
-        {
-          index: 2,
-          vertexBuffer: weightBuffer,
-          componentsPerAttribute: 1,
-          componentDatatype: Cesium.ComponentDatatype.FLOAT,
-        },
-      ],
-    });
+    this._context = context;
+    this._createVertexArray(context);
 
     this._shaderProgram = Cesium.ShaderProgram.fromCache({
       context,
@@ -244,7 +234,7 @@ class HeatmapTexturePrimitive {
       framebuffer: this._framebuffer,
       renderState: Cesium.RenderState.fromCache({ viewport }),
     });
-    const drawCommand = new Cesium.DrawCommand({
+    this._drawCommand = new Cesium.DrawCommand({
       primitiveType: Cesium.PrimitiveType.TRIANGLES,
       vertexArray: this._vertexArray,
       shaderProgram: this._shaderProgram,
@@ -269,7 +259,7 @@ class HeatmapTexturePrimitive {
       pass: Cesium.Pass.COMPUTE,
       execute: () => {
         clearCommand.execute(context);
-        drawCommand.execute(context);
+        this._drawCommand.execute(context);
         if (!this._rendered) {
           this._rendered = true;
           this._onTextureRendered();
@@ -278,6 +268,48 @@ class HeatmapTexturePrimitive {
     };
 
     this._onTextureCreated(this._texture);
+  }
+
+  _createVertexArray(context) {
+    const centerBuffer = Cesium.Buffer.createVertexBuffer({
+      context,
+      typedArray: this._vertexData.centers,
+      usage: Cesium.BufferUsage.STATIC_DRAW,
+    });
+    const offsetBuffer = Cesium.Buffer.createVertexBuffer({
+      context,
+      typedArray: this._vertexData.offsets,
+      usage: Cesium.BufferUsage.STATIC_DRAW,
+    });
+    const weightBuffer = Cesium.Buffer.createVertexBuffer({
+      context,
+      typedArray: this._vertexData.weights,
+      usage: Cesium.BufferUsage.STATIC_DRAW,
+    });
+
+    this._vertexArray = new Cesium.VertexArray({
+      context,
+      attributes: [
+        {
+          index: 0,
+          vertexBuffer: centerBuffer,
+          componentsPerAttribute: 2,
+          componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        },
+        {
+          index: 1,
+          vertexBuffer: offsetBuffer,
+          componentsPerAttribute: 2,
+          componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        },
+        {
+          index: 2,
+          vertexBuffer: weightBuffer,
+          componentsPerAttribute: 1,
+          componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        },
+      ],
+    });
   }
 }
 
@@ -296,10 +328,14 @@ export class WebGLHeatmap {
     this._viewer = viewer;
     this._scene = viewer.scene;
     this._destroyed = false;
+    this._data = options.data;
     this._targetScreenRadius = options.radius ?? 28;
     this._padding = options.padding ?? 0.08;
+    this._viewportPadding = options.viewportPadding ?? 0.1;
+    this._dynamicViewport = options.dynamicViewport ?? true;
     this._maxOpacity = options.maxOpacity ?? 0.8;
-    this._bounds = getPaddedBounds(options.data, this._padding);
+    this._bounds = getPaddedBounds(this._data, this._padding);
+    this._rasterBounds = this._bounds;
     this.rectangle = Cesium.Rectangle.fromDegrees(
       this._bounds.west,
       this._bounds.south,
@@ -323,7 +359,7 @@ export class WebGLHeatmap {
       rejectReady = reject;
     });
 
-    const maxValue = Math.max(...options.data.map((item) => item.value));
+    const maxValue = Math.max(...this._data.map((item) => item.value));
     this._material = new Cesium.Material({
       fabric: {
         uniforms: {
@@ -337,8 +373,8 @@ export class WebGLHeatmap {
 
     this._texturePrimitive = this._scene.primitives.add(
       new HeatmapTexturePrimitive({
-        data: options.data,
-        bounds: this._bounds,
+        data: this._data,
+        bounds: this._rasterBounds,
         maxValue,
         textureWidth: this._textureWidth,
         textureHeight: this._textureHeight,
@@ -352,22 +388,7 @@ export class WebGLHeatmap {
       }),
     );
 
-    this._groundPrimitive = this._scene.primitives.add(
-      new Cesium.GroundPrimitive({
-        geometryInstances: new Cesium.GeometryInstance({
-          geometry: new Cesium.RectangleGeometry({
-            rectangle: this.rectangle,
-            vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
-          }),
-        }),
-        appearance: new Cesium.EllipsoidSurfaceAppearance({
-          aboveGround: false,
-          material: this._material,
-          translucent: true,
-        }),
-        classificationType: Cesium.ClassificationType.TERRAIN,
-      }),
-    );
+    this._groundPrimitive = this._createGroundPrimitive(this._rasterBounds);
 
     this._removeAfterRender = this._scene.postRender.addEventListener(() => {
       if (this._textureRendered && this._groundPrimitive.ready) {
@@ -381,6 +402,12 @@ export class WebGLHeatmap {
         rejectReady(error);
       },
     );
+
+    if (this._dynamicViewport) {
+      this._removeCameraMoveEnd = this._viewer.camera.moveEnd.addEventListener(
+        () => this._updateRasterBounds(),
+      );
+    }
   }
 
   isDestroyed() {
@@ -395,6 +422,10 @@ export class WebGLHeatmap {
     this._scene.primitives.remove(this._groundPrimitive);
     this._scene.primitives.remove(this._texturePrimitive);
     this._removeReadyListeners();
+    if (this._removeCameraMoveEnd) {
+      this._removeCameraMoveEnd();
+      this._removeCameraMoveEnd = undefined;
+    }
     this._destroyed = true;
     return undefined;
   }
@@ -414,14 +445,61 @@ export class WebGLHeatmap {
     }
 
     const visibleWidthInDegrees = Cesium.Math.toDegrees(visibleWidth);
-    const dataWidthInDegrees = this._bounds.east - this._bounds.west;
+    const dataWidthInDegrees =
+      this._rasterBounds.east - this._rasterBounds.west;
     const viewportWidth = Math.max(this._viewer.canvas.clientWidth, 1);
     const radius =
       this._targetScreenRadius *
       (visibleWidthInDegrees / dataWidthInDegrees) *
       (this._textureWidth / viewportWidth);
 
-    return Cesium.Math.clamp(radius, 4, 220);
+    return Cesium.Math.clamp(radius, 0.5, 220);
+  }
+
+  _createGroundPrimitive(bounds) {
+    const rectangle = Cesium.Rectangle.fromDegrees(
+      bounds.west,
+      bounds.south,
+      bounds.east,
+      bounds.north,
+    );
+    return this._scene.primitives.add(
+      new Cesium.GroundPrimitive({
+        geometryInstances: new Cesium.GeometryInstance({
+          geometry: new Cesium.RectangleGeometry({
+            rectangle,
+            vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+          }),
+        }),
+        appearance: new Cesium.EllipsoidSurfaceAppearance({
+          aboveGround: false,
+          material: this._material,
+          translucent: true,
+        }),
+        classificationType: Cesium.ClassificationType.TERRAIN,
+      }),
+    );
+  }
+
+  _updateRasterBounds() {
+    if (this._destroyed) {
+      return;
+    }
+
+    const bounds = getViewBounds(
+      this._viewer.camera,
+      this._scene.globe.ellipsoid,
+      this._viewportPadding,
+    );
+    if (!bounds || boundsEqual(this._rasterBounds, bounds)) {
+      return;
+    }
+
+    this._rasterBounds = bounds;
+    this._texturePrimitive.setBounds(bounds);
+    this._scene.primitives.remove(this._groundPrimitive);
+    this._groundPrimitive = this._createGroundPrimitive(bounds);
+    this._scene.requestRender();
   }
 
   _removeReadyListeners() {
@@ -485,6 +563,43 @@ function getPaddedBounds(data, paddingRatio) {
     south: south - latPadding,
     north: north + latPadding,
   };
+}
+
+function getViewBounds(camera, ellipsoid, paddingRatio) {
+  const rectangle = camera.computeViewRectangle(ellipsoid);
+  if (!rectangle) {
+    return undefined;
+  }
+
+  let west = Cesium.Math.toDegrees(rectangle.west);
+  let east = Cesium.Math.toDegrees(rectangle.east);
+  let south = Cesium.Math.toDegrees(rectangle.south);
+  let north = Cesium.Math.toDegrees(rectangle.north);
+
+  // The heatmap data is local to Beijing. A view spanning the antimeridian
+  // cannot be represented by the single rectangle used for this texture.
+  if (east <= west || north <= south) {
+    return undefined;
+  }
+
+  const longitudePadding = (east - west) * paddingRatio;
+  const latitudePadding = (north - south) * paddingRatio;
+  west -= longitudePadding;
+  east += longitudePadding;
+  south = Math.max(south - latitudePadding, -89.9999);
+  north = Math.min(north + latitudePadding, 89.9999);
+
+  return { west, east, south, north };
+}
+
+function boundsEqual(left, right) {
+  const epsilon = 1e-8;
+  return (
+    Math.abs(left.west - right.west) < epsilon &&
+    Math.abs(left.east - right.east) < epsilon &&
+    Math.abs(left.south - right.south) < epsilon &&
+    Math.abs(left.north - right.north) < epsilon
+  );
 }
 
 function getTextureSize(bounds, maxSize) {

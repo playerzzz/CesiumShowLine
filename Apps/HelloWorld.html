@@ -43,7 +43,7 @@
 
     <script type="module">
       import { heatmapData } from "./data.js";
-      import { WebGLHeatmap } from "./WebGLHeatmap.js?v=20260713-1";
+      import { WebGLHeatmap } from "./WebGLHeatmap.js?v=20260713-2";
 
       const Cesium = globalThis.Cesium;
       const message = document.getElementById("message");
@@ -62,7 +62,10 @@
           data: heatmapData,
           radius: 28,
           maxOpacity: 0.8,
-          textureSize: 1024,
+          // The texture is re-rendered for the visible area after each move.
+          // A higher resolution keeps nearby points distinct at close range.
+          textureSize: 2048,
+          dynamicViewport: true,
           padding: 0.08,
         });
 
